@@ -68,12 +68,18 @@ spec:
         path: /
         
     exporters:
+      otlp:
+        # Forward to the otel-gateway collector in the control plane
+        endpoint: "otel-gateway.opentelemetry-operator-system.svc.cluster.local:4317"
+        tls:
+          insecure: true
       debug:
         verbosity: detailed
-      datadog:
-        api:
-          key: ${DATADOG_API_KEY}
-          site: datadoghq.com
+
+      # datadog:
+      #   api:
+      #     key: ${DATADOG_API_KEY}
+      #     site: datadoghq.com
 
       # prometheusremotewrite:
       #   endpoint: "http://prometheus-server.monitoring.svc.cluster.local:80/api/v1/write"
@@ -84,8 +90,8 @@ spec:
         metrics:
           receivers: [prometheus, otlp]
           processors: [batch, resourcedetection]
-          exporters: [debug, datadog]
+          exporters: [debug, otlp]
         traces:
           receivers: [otlp]
           processors: [batch, resourcedetection]
-          exporters: [debug, datadog]
+          exporters: [debug, otlp]

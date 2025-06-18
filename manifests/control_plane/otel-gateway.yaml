@@ -1,0 +1,56 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-gateway
+  namespace: opentelemetry-operator-system
+spec:
+  mode: deployment
+  image: public.ecr.aws/aws-observability/aws-otel-collector:v0.43.0
+  resources:
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 400Mi
+  env:
+    - name: GOGC
+      value: "100"
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8888"
+  envFrom:
+    - configMapRef:
+        name: datadog-env
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+    processors:
+      batch: {}
+      resourcedetection:
+        detectors: [env, system]
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+        path: /
+    exporters:
+      datadog:
+        api:
+          key: ${DATADOG_API_KEY}
+          site: datadoghq.com
+      debug:
+        verbosity: detailed
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch, resourcedetection]
+          exporters: [datadog, debug]
+        traces:
+          receivers: [otlp]
+          processors: [batch, resourcedetection]
+          exporters: [datadog, debug]

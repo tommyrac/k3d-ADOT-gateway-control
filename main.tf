@@ -18,14 +18,40 @@ terraform {
 }
 
 provider "kubernetes" {
+  alias = "control"
+  config_path    = "~/.kube/config"
+  config_context = "k3d-con-otest"
+}
+
+provider "kubernetes" {
+  alias = "worker"
   config_path    = "~/.kube/config"
   config_context = "k3d-otest"
 }
 
 provider "helm" {
+  alias = "control"
+  kubernetes {
+    config_path    = "~/.kube/config"
+    config_context = "k3d-con-otest"
+  }
+}
+
+provider "helm" {
+  alias = "worker"
   kubernetes {
     config_path    = "~/.kube/config"
     config_context = "k3d-otest"
+  }
+}
+
+resource "null_resource" "create_control_cluster" {
+  provisioner "local-exec" {
+    command = "k3d cluster create con-otest --agents 1 --config k3d-control-config.yaml"
+  }
+
+  triggers = {
+    always_run = timestamp()
   }
 }
 
@@ -39,8 +65,28 @@ resource "null_resource" "create_k3d_cluster" {
   }
 }
 
+resource "helm_release" "cert_manager_control" {
+  provider = helm.control
+  depends_on = [null_resource.create_control_cluster]
+
+  name             = "cert-manager"
+  namespace        = "cert-manager"
+  create_namespace = true
+
+  repository = "https://charts.jetstack.io"
+  chart      = "cert-manager"
+  version    = "v1.17.2"
+
+  set {
+    name  = "installCRDs"
+    value = "true"
+  }
+}
+
 resource "helm_release" "cert_manager" {
-  depends_on       = [null_resource.create_k3d_cluster]
+  provider = helm.worker
+  depends_on = [null_resource.create_k3d_cluster]
+
   name             = "cert-manager"
   namespace        = "cert-manager"
   create_namespace = true
@@ -59,8 +105,16 @@ resource "helm_release" "cert_manager" {
   # }
 }
 
+resource "null_resource" "datadog_env_configmap" {
+  depends_on = [null_resource.create_k3d_cluster, null_resource.create_control_cluster]
+  provisioner "local-exec" {
+    command = "./create-env-configmap.sh"
+  }
+}
 resource "helm_release" "otel_operator" {
-  depends_on       = [null_resource.create_k3d_cluster, helm_release.cert_manager]
+  depends_on = [null_resource.create_k3d_cluster, null_resource.create_control_cluster, null_resource.datadog_env_configmap, helm_release.cert_manager]
+
+  provider         = helm.worker
   name             = "opentelemetry-operator"
   namespace        = "opentelemetry-operator-system"
   create_namespace = true
@@ -75,24 +129,37 @@ resource "helm_release" "otel_operator" {
   # }
 }
 
-resource "null_resource" "apply_manifests" {
+resource "null_resource" "apply_workload_manifests" {
   depends_on = [null_resource.create_k3d_cluster]
-
   provisioner "local-exec" {
     command = <<EOT
-      kubectl apply -f manifests/nginx-config.yaml
-      kubectl apply -f manifests/nginx.yaml
-      kubectl apply -f manifests/redis.yaml
-      # Exporter manifests moved to manifests/exporters/ directory for comparison
-      kubectl apply -f manifests/exporters/redis-exporter.yaml
-      kubectl apply -f manifests/exporters/redis-exporter-service.yaml
-      kubectl apply -f manifests/exporters/nginx-exporter-service.yaml
-      kubectl apply -f manifests/test-flask.yaml
-      kubectl apply -f manifests/test-php.yaml
-      kubectl apply -f manifests/test-java.yaml
+      kubectl --context k3d-otest apply -f manifests/worker/apps/
+      kubectl --context k3d-otest apply -f manifests/worker/exporters/
     EOT
   }
 }
+
+resource "helm_release" "otel_operator_control" {
+  depends_on = [null_resource.create_k3d_cluster, null_resource.create_control_cluster, null_resource.datadog_env_configmap, helm_release.cert_manager, helm_release.cert_manager_control]
+  provider         = helm.control
+  name             = "opentelemetry-operator"
+  namespace        = "opentelemetry-operator-system"
+  create_namespace = true
+
+  repository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  chart      = "opentelemetry-operator"
+  # version    = "0.90.3"
+}
+
+resource "null_resource" "apply_control_plane_manifests" {
+  depends_on = [null_resource.datadog_env_configmap, null_resource.create_control_cluster, helm_release.otel_operator_control]
+  provisioner "local-exec" {
+    command = <<EOT
+      kubectl --context k3d-con-otest apply -f manifests/control_plane/otel-gateway.yaml
+    EOT
+  }
+}
+
 
 resource "null_resource" "wait_for_crds" {
   depends_on = [helm_release.otel_operator]
@@ -113,23 +180,12 @@ resource "null_resource" "wait_for_crds" {
 #   }
 # }
 
-resource "null_resource" "datadog_env_configmap" {
-  depends_on = [helm_release.otel_operator]
+resource "null_resource" "apply_worker_collector" {
+  depends_on = [null_resource.wait_for_crds, null_resource.datadog_env_configmap, helm_release.otel_operator]
   provisioner "local-exec" {
-    command = <<EOT
-      # Create ConfigMap from .env file
-      kubectl create configmap datadog-env --from-env-file=.env -n opentelemetry-operator-system --dry-run=client -o yaml | kubectl apply -f -
-    EOT
+    command = "kubectl --context k3d-otest apply -f manifests/worker/otel-collector.yaml"
   }
 }
-
-resource "null_resource" "otel_collector" {
-  depends_on = [null_resource.wait_for_crds, null_resource.datadog_env_configmap]
-  provisioner "local-exec" {
-    command = "kubectl apply -f manifests/otel-collector.yaml"
-  }
-}
-
 # resource "helm_release" "prometheus" {
 #   depends_on       = [null_resource.create_k3d_cluster, null_resource.prometheus_config]
 #   name             = "prometheus"
