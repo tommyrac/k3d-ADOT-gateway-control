@@ -1,0 +1,91 @@
+# otel-collector.yaml
+
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: collector
+  namespace: opentelemetry-operator-system
+spec:
+  mode: deployment
+  image: public.ecr.aws/aws-observability/aws-otel-collector:v0.43.0
+  resources:
+    limits:
+      cpu: 1
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 400Mi
+  env:
+    - name: GOGC
+      value: "100"
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8888"
+  # Using environment variables from ConfigMap created from .env file
+  envFrom:
+    - configMapRef:
+        name: datadog-env
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'redis'
+              static_configs:
+                - targets: ['redis-exporter.default.svc.cluster.local:9121']
+            - job_name: 'nginx'
+              static_configs:
+                - targets: ['nginx-exporter.default.svc.cluster.local:9113']
+            # - job_name: 'test-flask'
+            #   static_configs:
+            #     - targets: ['test-flask.default.svc.cluster.local:8000']
+            #   metrics_path: '/metrics'
+
+    processors:
+      batch: {}
+      resourcedetection:
+        detectors: [env, system]
+
+      # resource/redis:
+      #   attributes:
+      #     - key: service.name
+      #       value: redis
+      #       action: insert
+
+      # resource/nginx:
+      #   attributes:
+      #     - key: service.name
+      #       value: nginx
+      #       action: insert
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+        path: /
+        
+    exporters:
+      debug:
+        verbosity: detailed
+      datadog:
+        api:
+          key: ${DATADOG_API_KEY}
+          site: datadoghq.com
+
+      # prometheusremotewrite:
+      #   endpoint: "http://prometheus-server.monitoring.svc.cluster.local:80/api/v1/write"
+
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics:
+          receivers: [prometheus, otlp]
+          processors: [batch, resourcedetection]
+          exporters: [debug, datadog]
+        traces:
+          receivers: [otlp]
+          processors: [batch, resourcedetection]
+          exporters: [debug, datadog]
