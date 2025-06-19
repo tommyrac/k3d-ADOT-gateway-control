@@ -1,0 +1,23 @@
+# otel-gateway-nodeport-svc.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-gateway-collector
+  namespace: opentelemetry-operator-system
+spec:
+  type: NodePort
+  ports:
+    - port: 4317
+      targetPort: 4317
+      nodePort: 30417
+    - port: 4318
+      targetPort: 4318
+      nodePort: 30418
+  selector:
+    app.kubernetes.io/component: opentelemetry-collector
+    app.kubernetes.io/instance: opentelemetry-operator-system.otel-gateway
+    app.kubernetes.io/managed-by: opentelemetry-operator
+    app.kubernetes.io/part-of: opentelemetry
+    app.kubernetes.io/name: otel-gateway-collector
+

@@ -1,6 +1,6 @@
 # Local environment files
 .env
-kill.sh
+# kill.sh
 
 # Terraform files
 .terraform/

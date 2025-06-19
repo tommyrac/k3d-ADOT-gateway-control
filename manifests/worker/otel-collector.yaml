@@ -69,8 +69,7 @@ spec:
         
     exporters:
       otlp:
-        # Forward to the otel-gateway collector in the control plane
-        endpoint: "otel-gateway.opentelemetry-operator-system.svc.cluster.local:4317"
+        endpoint: "otel-gateway-collector.opentelemetry-operator-system.svc.cluster.local:4317"
         tls:
           insecure: true
       debug:

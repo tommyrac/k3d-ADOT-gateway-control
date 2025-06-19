@@ -63,6 +63,7 @@ resource "null_resource" "create_k3d_cluster" {
   triggers = {
     always_run = timestamp()
   }
+  depends_on = [null_resource.create_control_cluster]
 }
 
 resource "helm_release" "cert_manager_control" {

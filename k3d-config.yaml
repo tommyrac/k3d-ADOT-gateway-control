@@ -1,5 +1,8 @@
+# k3d-config.yaml
+
 apiVersion: k3d.io/v1alpha5
 kind: Simple
+network: k3d-con-otest
 servers: 1
 agents: 4
 registries:

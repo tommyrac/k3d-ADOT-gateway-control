@@ -1,5 +1,8 @@
+# k3d-control-config.yaml
+
 apiVersion: k3d.io/v1alpha5
 kind: Simple
+network: k3d-con-otest
 metadata:
   name: con-otest
 servers: 1
@@ -10,3 +13,10 @@ options:
       - arg: --disable=traefik
         nodeFilters:
           - server:*
+ports:
+  - port: 30417:30417
+    nodeFilters:
+      - server:*
+  - port: 30418:30418
+    nodeFilters:
+      - server:*
